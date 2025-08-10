@@ -1,19 +1,19 @@
--- Axe Hub | Final — Auto Chop + Drag-to-Store Collector + Kill Aura (animals) + Teleports (Rayfield)
+-- Axe Hub | Final Integrated Script
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Window = Rayfield:CreateWindow({
     Name = "Axe Hub | 99 Nights In The Forest",
     LoadingTitle = "Axe Hub",
-    LoadingSubtitle = "loading...",
+    LoadingSubtitle = "Axe Hub",
     ConfigurationSaving = { Enabled = true, FolderName = "axehub", FileName = "99nights" },
     Discord = { Enabled = false, Invite = "green-eye", RememberJoins = true },
     KeySystem = false,
     ShowText = "Axe Hub 🪓"
 })
 
-local FarmTab = Window:CreateTab("Farm", 4483362458)
-local CollectTab = Window:CreateTab("Collect", 4483362463)
-local CombatTab = Window:CreateTab("Combat", 4483362464)
-local TeleportTab = Window:CreateTab("Teleport", 4483362465)
+local FarmTab   = Window:CreateTab("Farm",      4483362458)
+local CollectTab= Window:CreateTab("Collect",   4483362463)
+local CombatTab = Window:CreateTab("Combat",    4483362464)
+local TeleTab   = Window:CreateTab("Teleport",  4483362465)
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
@@ -22,30 +22,33 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 
 local player = Players.LocalPlayer
-local camera = workspace.CurrentCamera
 
--- State flags
-local autoFarmEnabled = false
-local autoCollectEnabled = false
-local killAuraEnabled = false
-local pointerShown = false
+local function currentCamera() return workspace.CurrentCamera end
+
+-- state
+local autoFarmEnabled   = false
+local autoCollectEnabled= false
+local killAuraEnabled   = false
+local pointerShown      = false
 
 local farmRunning, collectRunning, killRunning, pointerRunning = false, false, false, false
 
--- Tunables (defaults)
-local swingDelay = 0.05
+-- defaults/tunables
+local swingDelay       = 0.05
 local treeSearchRadius = 200
-local logSearchRadius = math.huge
-local dragDuration = 2.0         -- seconds dragging per attempt
-local dragRetries = 3            -- retries per log
-local storeWaitTimeout = 12      -- seconds to wait for player/store after dragging
-local clickSpamDelay = 0.03
+local logSearchRadius  = math.huge
+local dragDuration     = 2.0
+local dragRetries      = 3
+local storeWaitTimeout = 12
+local clickSpamDelay   = 0.03
 
-local killRange = 30
-local killCooldown = 0.09
-local killMaxTargets = 5
+local killRange        = 30
+local killCooldown     = 0.09
+local killMaxTargets   = 5
 
--- helper: get character parts
+-- helpers
+local function notify(t,c,d) Rayfield:Notify({ Title = t, Content = c, Duration = d or 2 }) end
+
 local function getCharacterParts()
     local char = player.Character
     if not char then return nil end
@@ -54,15 +57,8 @@ local function getCharacterParts()
     return char, humanoid, hrp
 end
 
-player.CharacterAdded:Connect(function()
-    task.wait(0.25)
-end)
+player.CharacterAdded:Connect(function() task.wait(0.25) end)
 
-local function notify(title, content, duration)
-    Rayfield:Notify({ Title = title, Content = content, Duration = duration or 2 })
-end
-
--- equip tool from character or backpack
 local function equipTool(toolName)
     local char, humanoid = getCharacterParts()
     if not char or not humanoid then return false end
@@ -75,13 +71,12 @@ local function equipTool(toolName)
     return false
 end
 
--- equip best weapon (heuristic)
 local function equipBestWeapon()
     local char, humanoid = getCharacterParts()
     if not char or not humanoid then return nil end
     local candidates = {}
-    for _, t in ipairs(char:GetChildren()) do if t:IsA("Tool") then table.insert(candidates, t) end end
-    for _, t in ipairs(player.Backpack:GetChildren()) do if t:IsA("Tool") then table.insert(candidates, t) end end
+    for _,v in ipairs(char:GetChildren()) do if v:IsA("Tool") then table.insert(candidates, v) end end
+    for _,v in ipairs(player.Backpack:GetChildren()) do if v:IsA("Tool") then table.insert(candidates, v) end end
     if #candidates == 0 then return nil end
     local function score(tool)
         local nm = tostring(tool.Name):lower()
@@ -99,44 +94,44 @@ local function equipBestWeapon()
     return best
 end
 
--- click helpers
 local function clickAt(x,y,times,delay)
     times = times or 1
     delay = delay or 0.03
-    for i = 1, times do
+    for i=1,times do
         pcall(function()
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+            VirtualInputManager:SendMouseButtonEvent(x,y,0,true,game,0)
+            VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0)
         end)
         task.wait(delay)
     end
 end
 
 local function centerClick(times,delay)
-    local vs = camera.ViewportSize
+    local cam = currentCamera()
+    if not cam then return end
+    local vs = cam.ViewportSize
     clickAt(vs.X/2, vs.Y/2, times or 1, delay or 0.03)
 end
 
--- tween movement
 local function moveTo(position, speedDiv)
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return end
     speedDiv = (speedDiv and speedDiv > 0) and speedDiv or 16
     local dist = (hrp.Position - position).Magnitude
-    local tween = TweenService:Create(hrp, TweenInfo.new(math.max(dist / speedDiv, 0.05), Enum.EasingStyle.Linear), { CFrame = CFrame.new(position) })
+    local tween = TweenService:Create(hrp, TweenInfo.new(math.max(dist / speedDiv, 0.05), Enum.EasingStyle.Linear), {CFrame = CFrame.new(position)})
     tween:Play()
     tween.Completed:Wait()
 end
 
--- face camera toward a world point
 local function faceCameraTo(point)
-    if not camera then return end
-    local camPos = camera.CFrame.Position
-    pcall(function() camera.CFrame = CFrame.new(camPos, point) end)
+    local cam = currentCamera()
+    if not cam then return end
+    local camPos = cam.CFrame.Position
+    pcall(function() cam.CFrame = CFrame.new(camPos, point) end)
     task.wait(0.02)
 end
 
--- ===== Trees / Auto Chop =====
+-- ===== Trees (Auto Chop) =====
 local function isBigQuestTree(model)
     if not model then return false end
     local name = tostring(model.Name):lower()
@@ -147,12 +142,12 @@ local function isBigQuestTree(model)
 end
 
 local function getNearestTree()
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return nil end
     local rootPos = hrp.Position
     local nearest, nd = nil, math.huge
     local function checkFolder(folder)
-        for _, obj in ipairs(folder:GetChildren()) do
+        for _,obj in ipairs(folder:GetChildren()) do
             if obj:IsA("Model") and obj:FindFirstChild("Trunk") and not isBigQuestTree(obj) then
                 local part = obj:FindFirstChild("Trunk") or obj:FindFirstChildWhichIsA("BasePart")
                 if part then
@@ -180,7 +175,6 @@ local function swingForTree(tree)
             centerClick(1,0)
         end
     else
-        -- try Activate if available, otherwise center click
         pcall(function()
             if tool and typeof(tool.Activate) == "function" then
                 tool:Activate()
@@ -218,7 +212,7 @@ local function farmWorker()
     farmRunning = false
 end
 
--- ===== Logs & Drag-to-Store Collector =====
+-- ===== Logs (drag + physical move + store) =====
 local function isValidLogModel(obj)
     if not obj then return false end
     local nm = tostring(obj.Name):lower()
@@ -227,7 +221,7 @@ local function isValidLogModel(obj)
 end
 
 local function findNearestLogPart()
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return nil end
     local rootPos = hrp.Position
     local nearestPart, nd = nil, math.huge
@@ -249,10 +243,10 @@ local function findNearestLogPart()
     return nearestPart
 end
 
-local function findStoreButtonGui()
-    local function scanGui(rootGui)
-        if not rootGui then return nil end
-        for _, obj in ipairs(rootGui:GetDescendants()) do
+local function scanGuiForStoreButton()
+    local function scan(root)
+        if not root then return nil end
+        for _, obj in ipairs(root:GetDescendants()) do
             if (obj:IsA("TextButton") or obj:IsA("ImageButton")) then
                 local nm = tostring(obj.Name):lower()
                 local txt = ""
@@ -267,47 +261,48 @@ local function findStoreButtonGui()
         return nil
     end
     local pg = player:FindFirstChildOfClass("PlayerGui")
-    local found = scanGui(pg)
+    local found = scan(pg)
     if found then return found end
-    found = scanGui(CoreGui)
+    found = scan(CoreGui)
     return found
 end
 
 -- pointer overlay
 local pointerGui, pointerFrame, pointerConn
-local function createPointerGui()
+local function createPointer()
     if pointerGui and pointerGui.Parent then return end
     pointerGui = Instance.new("ScreenGui")
-    pointerGui.Name = "AxeHubStorePointer"
+    pointerGui.Name = "AxeHub_StorePointer"
     pointerGui.ResetOnSpawn = false
     pointerGui.Parent = CoreGui
     pointerFrame = Instance.new("ImageLabel", pointerGui)
-    pointerFrame.Name = "StorePointer"
     pointerFrame.Size = UDim2.new(0,48,0,48)
     pointerFrame.AnchorPoint = Vector2.new(0.5,0.5)
     pointerFrame.BackgroundTransparency = 1
-    local tl = Instance.new("TextLabel", pointerFrame)
-    tl.Size = UDim2.new(1,0,1,0)
-    tl.BackgroundTransparency = 1
-    tl.Text = "●"
-    tl.TextScaled = true
-    tl.TextColor3 = Color3.new(1,1,1)
+    local t = Instance.new("TextLabel", pointerFrame)
+    t.Size = UDim2.new(1,0,1,0)
+    t.BackgroundTransparency = 1
+    t.Text = "●"
+    t.TextScaled = true
+    t.TextColor3 = Color3.new(1,1,1)
 end
-local function destroyPointerGui()
+
+local function destroyPointer()
     if pointerConn then pointerConn:Disconnect() pointerConn = nil end
     if pointerGui then pcall(function() pointerGui:Destroy() end) pointerGui = nil pointerFrame = nil end
 end
+
 local function startPointerLoop()
     if pointerRunning then return end
     pointerRunning = true
-    createPointerGui()
+    createPointer()
     pointerConn = RunService.RenderStepped:Connect(function()
         if not pointerRunning then return end
         if not pointerShown then
             if pointerFrame then pointerFrame.Visible = false end
             return
         end
-        local btn = findStoreButtonGui()
+        local btn = scanGuiForStoreButton()
         if btn and pointerFrame then
             local pos = btn.AbsolutePosition
             local size = btn.AbsoluteSize
@@ -318,62 +313,107 @@ local function startPointerLoop()
         end
     end)
 end
+
 local function stopPointerLoop()
     pointerRunning = false
-    destroyPointerGui()
+    destroyPointer()
 end
 
--- drag helpers
-local function dragMouse(startX, startY, targetX, targetY, steps, stepDelay)
+-- drag helpers (mouse simulation)
+local function dragMouse(startX,startY,targetX,targetY,steps, stepDelay)
     steps = steps or 8
     stepDelay = stepDelay or 0.03
-    pcall(function() VirtualInputManager:SendMouseButtonEvent(startX, startY, 0, true, game, 0) end)
+    pcall(function() VirtualInputManager:SendMouseButtonEvent(startX,startY,0,true,game,0) end)
     task.wait(0.03)
+    for i=1,steps do
+        local t = i/steps
+        local nx = startX + (targetX - startX) * t
+        local ny = startY + (targetY - startY) * t
+        pcall(function() VirtualInputManager:SendMouseButtonEvent(nx,ny,0,true,game,0) end)
+        task.wait(stepDelay)
+    end
+end
+
+local function releaseMouseAt(x,y)
+    pcall(function() VirtualInputManager:SendMouseButtonEvent(x,y,0,false,game,0) end)
+end
+
+-- try to physically move log model toward player (if unanchored)
+local function nudgeLogTowards(logPart, targetWorldPos, strength)
+    pcall(function()
+        local model = nil
+        if logPart and logPart:IsA("BasePart") and logPart.Parent then
+            if logPart.Parent:IsA("Model") then model = logPart.Parent end
+        end
+        if model then
+            local primary = model.PrimaryPart or logPart
+            if primary and not primary.Anchored then
+                local offset = (targetWorldPos - primary.Position) * math.clamp(strength or 0.5, 0, 1)
+                for _, part in ipairs(model:GetDescendants()) do
+                    if part:IsA("BasePart") and not part.Anchored then
+                        part.CFrame = part.CFrame + offset
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- drag log into store area and wait for store action
+local function dragLogThenWaitForStore(logPart)
+    if not logPart or not logPart.Parent then return false end
+    local cam = currentCamera()
+    if not cam then return false end
+    local aimPos = logPart.Position + Vector3.new(0, (logPart.Size and logPart.Size.Y or 1)*0.5, 0)
+    local screenPos, onScreen = cam:WorldToViewportPoint(aimPos)
+    if not onScreen then
+        faceCameraTo(aimPos)
+        task.wait(0.03)
+        screenPos, onScreen = cam:WorldToViewportPoint(aimPos)
+        if not onScreen then return false end
+    end
+    local startX, startY = screenPos.X, screenPos.Y
+    local vs = cam.ViewportSize
+    local targetX = math.clamp(vs.X * 0.78, 1, vs.X - 2)
+    local targetY = math.clamp(vs.Y * 0.78, 1, vs.Y - 2)
+
+    -- attempt both physical nudge and mouse drag for duration
+    local steps = math.max(4, math.floor(dragDuration / 0.03))
+    local nudgeStrength = 0.5
     for i=1, steps do
+        -- nudge model toward camera-target point (server may not accept but we try)
+        nudgeLogTowards(logPart, player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart.Position + Vector3.new(0,0,2) or logPart.Position, nudgeStrength)
+        -- partial drag movement
         local t = i/steps
         local nx = startX + (targetX - startX) * t
         local ny = startY + (targetY - startY) * t
         pcall(function() VirtualInputManager:SendMouseButtonEvent(nx, ny, 0, true, game, 0) end)
-        task.wait(stepDelay)
-    end
-    -- hold at target (do not release here)
-end
-
-local function releaseMouseAt(x,y)
-    pcall(function() VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0) end)
-end
-
--- drag a log into store location, then wait for store (player action)
-local function dragLogThenWaitForStore(logPart)
-    if not logPart or not logPart.Parent then return false end
-    local aimPos = logPart.Position + Vector3.new(0, (logPart.Size and logPart.Size.Y or 1)*0.5, 0)
-    local screenPos, onScreen = camera:WorldToViewportPoint(aimPos)
-    if not onScreen then
-        faceCameraTo(aimPos)
         task.wait(0.03)
-        screenPos, onScreen = camera:WorldToViewportPoint(aimPos)
-        if not onScreen then return false end
     end
-    local startX, startY = screenPos.X, screenPos.Y
-    local vs = camera.ViewportSize
-    local targetX = math.clamp(vs.X * 0.78, 1, vs.X - 2)
-    local targetY = math.clamp(vs.Y * 0.78, 1, vs.Y - 2)
-
-    -- perform repeated drags for dragDuration seconds per attempt
-    local steps = math.max(4, math.floor(dragDuration / 0.03))
-    dragMouse(startX, startY, targetX, targetY, steps, 0.03)
-    -- release once after dragging
-    releaseMouseAt(targetX, targetY)
+    -- release
+    pcall(function() VirtualInputManager:SendMouseButtonEvent(targetX, targetY, 0, false, game, 0) end)
     task.wait(0.06)
 
-    -- notify player to press Store if needed
-    notify("Store it!", "Drag performed — click the Store button to store this log.", 2)
+    -- notification to user to press store if needed
+    notify("Store it!", "Dragged the log — click STORE to finish (automated clicks will try too).", 2)
 
-    -- wait for the log to be stored (log removal) or until timeout
+    -- automated attempt to click store button repeatedly while waiting for store removal
     local t0 = tick()
     while logPart and logPart.Parent and tick() - t0 < storeWaitTimeout do
-        task.wait(0.25)
+        local storeBtn = scanGuiForStoreButton()
+        if storeBtn and storeBtn.AbsolutePosition and storeBtn.AbsoluteSize then
+            local sx = storeBtn.AbsolutePosition.X + storeBtn.AbsoluteSize.X/2
+            local sy = storeBtn.AbsolutePosition.Y + storeBtn.AbsoluteSize.Y/2
+            clickAt(sx, sy, 6, clickSpamDelay)
+            -- also click near target release area to ensure interaction
+            clickAt(targetX, targetY, 3, clickSpamDelay)
+        else
+            -- spam at release area
+            clickAt(targetX, targetY, 4, clickSpamDelay)
+        end
+        task.wait(0.2)
     end
+
     return not (logPart and logPart.Parent)
 end
 
@@ -390,11 +430,11 @@ local function collectWorker()
                 task.wait(0.06)
                 faceCameraTo(logPart.Position)
                 task.wait(0.03)
-                local success = false
+                local stored = false
                 for attempt = 1, dragRetries do
                     if not autoCollectEnabled then break end
-                    success = dragLogThenWaitForStore(logPart)
-                    if success then break end
+                    stored = dragLogThenWaitForStore(logPart)
+                    if stored then break end
                     task.wait(0.12)
                 end
                 task.wait(0.12)
@@ -407,27 +447,24 @@ local function collectWorker()
 end
 
 -- ===== Kill Aura (animals) =====
-local animalsList = { "rabbit", "wolf", "alpha wolf", "alpha_wolf", "bear" }
+local animalsList = { "rabbit", "wolf", "alpha wolf", "alpha_wolf", "alphawolf", "bear" }
 local function isAnimalModel(model)
-    if not model then return false end
-    if not model:IsA("Model") then return false end
-    if model:FindFirstChildWhichIsA("Humanoid") and model:FindFirstChild("HumanoidRootPart") then
-        local nm = tostring(model.Name):lower()
-        for _, a in ipairs(animalsList) do
-            if nm:find(a) then return true end
-        end
-        return false
+    if not model or not model:IsA("Model") then return false end
+    if not model:FindFirstChildWhichIsA("Humanoid") or not model:FindFirstChild("HumanoidRootPart") then return false end
+    local nm = tostring(model.Name):lower()
+    for _,a in ipairs(animalsList) do
+        if nm:find(a) then return true end
     end
     return false
 end
 
 local function getNearbyAnimals(range)
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return {} end
     local res = {}
     for _, obj in ipairs(workspace:GetDescendants()) do
         if isAnimalModel(obj) then
-            local part = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstWhichIsA("BasePart")
+            local part = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
             if part then
                 local d = (hrp.Position - part.Position).Magnitude
                 if d <= range then
@@ -448,15 +485,15 @@ local function killAuraWorker()
     killRunning = true
     while killAuraEnabled do
         local char, humanoid, hrp = getCharacterParts()
-        if not hrp then task.wait(0.5) goto K_CONT end
+        if not hrp then task.wait(0.5) goto CONT end
         local targets = getNearbyAnimals(killRange)
         if #targets > 0 then
-            local tool = equipBestWeapon() or char:FindFirstChildWhichIsA("Tool")
+            local tool = equipBestWeapon() or (char and char:FindFirstChildWhichIsA("Tool"))
             for i=1, math.min(#targets, killMaxTargets) do
                 if not killAuraEnabled then break end
                 local t = targets[i]
-                if not t or not t.model or not t.humanoid or t.humanoid.Health <= 0 then goto K_NEXT end
-                if tool and tool:FindFirstChild("MeleeServer") and tool.MeleeServer:FindFirstChild("Hit") then
+                if not t or not t.model or not t.humanoid or t.humanoid.Health <= 0 then goto NEXT end
+                if tool and tool:FindFirstChild("MeleeServer") then
                     pcall(function() tool.MeleeServer.Hit:InvokeServer(t.humanoid) end)
                 else
                     pcall(function()
@@ -464,28 +501,28 @@ local function killAuraWorker()
                         if tool and typeof(tool.Activate) == "function" then
                             tool:Activate()
                         else
-                            centerClick(1, 0)
+                            centerClick(1,0)
                         end
                     end)
                 end
                 task.wait(killCooldown)
-                ::K_NEXT::
+                ::NEXT::
             end
         end
-        ::K_CONT::
-        task.wait(math.max(0.01, killCooldown))
+        ::CONT::
+        task.wait(math.max(0.02, killCooldown))
     end
     killRunning = false
 end
 
 -- ===== Teleports =====
 local function findNearestCampfire()
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return nil end
     local rootPos = hrp.Position
     local best, bd = nil, math.huge
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") or obj:IsA("BasePart") then
+        if (obj:IsA("Model") or obj:IsA("BasePart")) then
             local n = tostring(obj.Name):lower()
             if n:find("campfire") or n:find("firepit") or n:find("camp") then
                 local part = obj:IsA("Model") and (obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")) or obj
@@ -502,27 +539,27 @@ end
 local function teleportToCampfire()
     local part = findNearestCampfire()
     if not part then notify("Teleport", "No campfire found!", 3); return end
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return end
     hrp.CFrame = CFrame.new(part.Position + Vector3.new(0,3,0))
     notify("Teleport", "Teleported to campfire", 2)
 end
 
 local function createSafePadAndTeleport()
-    local _, _, hrp = getCharacterParts()
+    local _,_,hrp = getCharacterParts()
     if not hrp then return end
     local base = hrp.Position
     local padY = base.Y + 220
-    local padPos = Vector3.new(base.X, padY, base.Z)
-    local padName = "AxeHubSafePad_" .. tostring(player.Name)
-    if workspace:FindFirstChild(padName) then pcall(function() workspace[padName]:Destroy() end) end
+    local pos = Vector3.new(base.X, padY, base.Z)
+    local nm = "AxeHubSafePad_" .. player.Name
+    if workspace:FindFirstChild(nm) then pcall(function() workspace[nm]:Destroy() end) end
     local pad = Instance.new("Part")
-    pad.Name = padName
+    pad.Name = nm
     pad.Size = Vector3.new(40,1,40)
     pad.Anchored = true
-    pad.Position = padPos
+    pad.Position = pos
     pad.Parent = workspace
-    hrp.CFrame = CFrame.new(padPos + Vector3.new(0,3,0))
+    hrp.CFrame = CFrame.new(pos + Vector3.new(0,3,0))
     notify("Teleport", "Teleported to Safe Place (pad created)", 3)
 end
 
@@ -533,141 +570,39 @@ FarmTab:CreateToggle({
     Callback = function(v)
         autoFarmEnabled = v
         if v then
-            notify("Auto Tree Chop", "Started farming", 2)
+            notify("Auto Farm", "Started", 2)
             task.spawn(farmWorker)
         else
-            notify("Auto Tree Chop", "Stopped farming", 2)
+            notify("Auto Farm", "Stopped", 2)
         end
     end
 })
-FarmTab:CreateSlider({
-    Name = "Swing Delay",
-    Range = {0.01,0.5},
-    Increment = 0.01,
-    CurrentValue = swingDelay,
-    Suffix = "s",
-    Callback = function(val) swingDelay = val end
-})
-FarmTab:CreateSlider({
-    Name = "Tree Radius",
-    Range = {30,1000},
-    Increment = 10,
-    CurrentValue = treeSearchRadius,
-    Suffix = "studs",
-    Callback = function(val) treeSearchRadius = val end
-})
+FarmTab:CreateSlider({ Name = "Swing Delay", Range = {0.01,0.5}, Increment = 0.01, CurrentValue = swingDelay, Suffix = "s", Callback = function(val) swingDelay = val end })
+FarmTab:CreateSlider({ Name = "Tree Radius", Range = {30,1000}, Increment = 10, CurrentValue = treeSearchRadius, Suffix = "studs", Callback = function(val) treeSearchRadius = val end })
 
-CollectTab:CreateToggle({
-    Name = "Auto Collect (Drag → Store)",
-    CurrentValue = false,
-    Callback = function(v)
-        autoCollectEnabled = v
-        if v then
-            notify("Auto Collect", "Started (drag + store)", 2)
-            task.spawn(collectWorker)
-        else
-            notify("Auto Collect", "Stopped collecting", 2)
-        end
-    end
-})
-CollectTab:CreateSlider({
-    Name = "Drag Duration",
-    Range = {0.5,6},
-    Increment = 0.1,
-    CurrentValue = dragDuration,
-    Suffix = "s",
-    Callback = function(v) dragDuration = v end
-})
-CollectTab:CreateSlider({
-    Name = "Retries per Log",
-    Range = {1,6},
-    Increment = 1,
-    CurrentValue = dragRetries,
-    Callback = function(v) dragRetries = v end
-})
-CollectTab:CreateToggle({
-    Name = "Show Store Pointer",
-    CurrentValue = false,
-    Callback = function(v)
-        pointerShown = v
-        if v then startPointerLoop() else stopPointerLoop() end
-    end
-})
+CollectTab:CreateToggle({ Name = "Auto Collect (Drag → Store)", CurrentValue = false, Callback = function(v)
+    autoCollectEnabled = v
+    if v then notify("Auto Collect","Started",2); task.spawn(collectWorker) else notify("Auto Collect","Stopped",2) end
+end})
+CollectTab:CreateSlider({ Name = "Drag Duration", Range = {0.5,6}, Increment = 0.1, CurrentValue = dragDuration, Suffix = "s", Callback = function(v) dragDuration = v end })
+CollectTab:CreateSlider({ Name = "Retries per Log", Range = {1,6}, Increment = 1, CurrentValue = dragRetries, Callback = function(v) dragRetries = v end })
+CollectTab:CreateToggle({ Name = "Show Store Pointer", CurrentValue = false, Callback = function(v) pointerShown = v if v then startPointerLoop() else stopPointerLoop() end end })
+CollectTab:CreateSlider({ Name = "Vacuum Range", Range = {500,30000}, Increment = 500, CurrentValue = 10000, Suffix = "studs", Callback = function(v) logSearchRadius = v end })
+CollectTab:CreateSlider({ Name = "Store Wait Timeout", Range = {2,30}, Increment = 1, CurrentValue = storeWaitTimeout, Suffix = "s", Callback = function(v) storeWaitTimeout = v end })
+CollectTab:CreateSlider({ Name = "Click Spam Delay", Range = {0.01,0.2}, Increment = 0.01, CurrentValue = clickSpamDelay, Suffix = "s", Callback = function(v) clickSpamDelay = v end })
 
-CollectTab:CreateSlider({
-    Name = "Vacuum Range",
-    Range = {500,30000},
-    Increment = 500,
-    CurrentValue = 10000,
-    Suffix = "studs",
-    Callback = function(v) logSearchRadius = v end
-})
-CollectTab:CreateSlider({
-    Name = "Store Wait Timeout",
-    Range = {2,30},
-    Increment = 1,
-    CurrentValue = storeWaitTimeout,
-    Suffix = "s",
-    Callback = function(v) storeWaitTimeout = v end
-})
-CollectTab:CreateSlider({
-    Name = "Click Spam Delay",
-    Range = {0.01,0.2},
-    Increment = 0.01,
-    CurrentValue = clickSpamDelay,
-    Suffix = "s",
-    Callback = function(v) clickSpamDelay = v end
-})
+CombatTab:CreateToggle({ Name = "Kill Aura (Animals)", CurrentValue = false, Callback = function(v)
+    killAuraEnabled = v
+    if v then notify("Kill Aura","Enabled",2); task.spawn(killAuraWorker) else notify("Kill Aura","Disabled",2) end
+end})
+CombatTab:CreateSlider({ Name = "Range", Range = {5,200}, Increment = 1, CurrentValue = killRange, Suffix = "studs", Callback = function(v) killRange = v end })
+CombatTab:CreateSlider({ Name = "Attack Cooldown", Range = {0.02,1}, Increment = 0.01, CurrentValue = killCooldown, Suffix = "s", Callback = function(v) killCooldown = v end })
+CombatTab:CreateSlider({ Name = "Max Targets", Range = {1,10}, Increment = 1, CurrentValue = killMaxTargets, Callback = function(v) killMaxTargets = v end })
 
-CombatTab:CreateToggle({
-    Name = "Kill Aura (Animals)",
-    CurrentValue = false,
-    Callback = function(v)
-        killAuraEnabled = v
-        if v then
-            notify("Kill Aura", "Enabled (animals)", 2)
-            task.spawn(killAuraWorker)
-        else
-            notify("Kill Aura", "Disabled", 2)
-        end
-    end
-})
-CombatTab:CreateSlider({
-    Name = "Range",
-    Range = {5,200},
-    Increment = 1,
-    CurrentValue = killRange,
-    Suffix = "studs",
-    Callback = function(v) killRange = v end
-})
-CombatTab:CreateSlider({
-    Name = "Attack Cooldown",
-    Range = {0.02,1},
-    Increment = 0.01,
-    CurrentValue = killCooldown,
-    Suffix = "s",
-    Callback = function(v) killCooldown = v end
-})
-CombatTab:CreateSlider({
-    Name = "Max Targets",
-    Range = {1,10},
-    Increment = 1,
-    CurrentValue = killMaxTargets,
-    Callback = function(v) killMaxTargets = v end
-})
+local selectedTeleport = "Campfire"
+TeleTab:CreateDropdown({ Name = "Teleport To", Options = { "Campfire", "Safe Place" }, CurrentOption = selectedTeleport, Callback = function(option) selectedTeleport = option end })
+TeleTab:CreateButton({ Name = "Teleport", Callback = function()
+    if selectedTeleport == "Campfire" then teleportToCampfire() else createSafePadAndTeleport() end
+end })
 
-TeleportTab:CreateDropdown({
-    Name = "Teleport To",
-    Options = { "Campfire", "Safe Place" },
-    CurrentOption = "Campfire",
-    Callback = function(option) TeleportTab.CurrentOption = option end
-})
-TeleportTab:CreateButton({
-    Name = "Teleport",
-    Callback = function()
-        local opt = TeleportTab.CurrentOption or "Campfire"
-        if opt == "Campfire" then teleportToCampfire() else createSafePadAndTeleport() end
-    end
-})
-
-notify("Axe Hub", "Loaded — Farm / Collect / Combat / Teleport tabs ready", 3)
+notify("Axe Hub", "Loaded — use Farm / Collect / Combat / Teleport tabs", 3)

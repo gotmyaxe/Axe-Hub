@@ -1,4 +1,4 @@
--- Axe Hub | Final Integrated Script
+-- Axe Hub | Final Integrated Script (Fixed)
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 local Window = Rayfield:CreateWindow({
     Name = "Axe Hub | 99 Nights In The Forest",
@@ -118,9 +118,17 @@ local function moveTo(position, speedDiv)
     if not hrp then return end
     speedDiv = (speedDiv and speedDiv > 0) and speedDiv or 16
     local dist = (hrp.Position - position).Magnitude
-    local tween = TweenService:Create(hrp, TweenInfo.new(math.max(dist / speedDiv, 0.05), Enum.EasingStyle.Linear), {CFrame = CFrame.new(position)})
+    local duration = math.max(dist / speedDiv, 0.05)
+    local tween = TweenService:Create(hrp, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = CFrame.new(position)})
     tween:Play()
-    tween.Completed:Wait()
+    local completed = false
+    local connection = tween.Completed:Connect(function() completed = true end)
+    -- Wait with timeout to prevent infinite waiting
+    local startTime = tick()
+    while not completed and (tick() - startTime) < (duration + 2) do
+        task.wait(0.1)
+    end
+    connection:Disconnect()
 end
 
 local function faceCameraTo(point)
@@ -176,7 +184,7 @@ local function swingForTree(tree)
         end
     else
         pcall(function()
-            if tool and typeof(tool.Activate) == "function" then
+            if tool and tool.Activate then
                 tool:Activate()
             else
                 centerClick(1,0)
@@ -380,9 +388,15 @@ local function dragLogThenWaitForStore(logPart)
     -- attempt both physical nudge and mouse drag for duration
     local steps = math.max(4, math.floor(dragDuration / 0.03))
     local nudgeStrength = 0.5
+    local hrp = getCharacterParts() and select(3, getCharacterParts())
+    local nudgeTarget = hrp and hrp.Position + Vector3.new(0,0,2) or logPart.Position
+    
+    -- Start drag
+    pcall(function() VirtualInputManager:SendMouseButtonEvent(startX, startY, 0, true, game, 0) end)
+    
     for i=1, steps do
         -- nudge model toward camera-target point (server may not accept but we try)
-        nudgeLogTowards(logPart, player.Character and player.Character:FindFirstChild("HumanoidRootPart") and player.Character.HumanoidRootPart.Position + Vector3.new(0,0,2) or logPart.Position, nudgeStrength)
+        nudgeLogTowards(logPart, nudgeTarget, nudgeStrength)
         -- partial drag movement
         local t = i/steps
         local nx = startX + (targetX - startX) * t
@@ -498,7 +512,7 @@ local function killAuraWorker()
                 else
                     pcall(function()
                         faceCameraTo(t.part.Position)
-                        if tool and typeof(tool.Activate) == "function" then
+                        if tool and tool.Activate then
                             tool:Activate()
                         else
                             centerClick(1,0)
